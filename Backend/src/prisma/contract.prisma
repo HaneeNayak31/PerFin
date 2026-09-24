@@ -1,0 +1,105 @@
+// use prisma-8
+
+enum AccountType {
+  CHECKING = "checking"
+  SAVINGS  = "savings"
+  CASH     = "cash"
+  CREDIT   = "credit"
+}
+
+enum TransactionType {
+  INCOME  = "income"
+  EXPENSE = "expense"
+}
+
+enum CategoryType {
+  INCOME  = "income"
+  EXPENSE = "expense"
+}
+
+model User {
+  id           Int         @id @default(autoincrement())
+  email        String      @unique
+  passwordHash String
+  name         String?
+  createdAt    DateTime    @default(now())
+  updatedAt temporal.updatedAtString()
+
+  accounts     Account[]
+  categories   Category[]
+  transactions Transaction[]
+  budgets      Budget[]
+}
+
+model Account {
+  id           Int           @id @default(autoincrement())
+  userId       Int
+  name         String
+  type         AccountType
+  balance      Decimal
+  currency     String        @default("INR")
+  createdAt    DateTime      @default(now())
+  updatedAt temporal.updatedAtString()
+
+  user         User          @relation(fields: [userId], references: [id])
+  transactions Transaction[]
+
+  @@index([userId])
+}
+
+model Category {
+  id           Int             @id @default(autoincrement())
+  userId       Int
+  name         String
+  type         CategoryType
+  createdAt    DateTime        @default(now())
+
+  user         User            @relation(fields: [userId], references: [id])
+  transactions Transaction[]
+  budgets      Budget[]
+
+  @@unique([userId, name])
+  @@index([userId])
+}
+
+model Transaction {
+  id          Int             @id @default(autoincrement())
+  userId      Int
+  accountId   Int
+  categoryId  Int?
+  amount      Decimal
+  type        TransactionType
+  description String?
+  merchant    String?
+  date        DateTime
+  createdAt   DateTime        @default(now())
+  updatedAt temporal.updatedAtString()
+
+  user        User            @relation(fields: [userId], references: [id])
+  account     Account         @relation(fields: [accountId], references: [id])
+  category    Category?       @relation(fields: [categoryId], references: [id])
+
+  @@index([userId])
+  @@index([accountId])
+  @@index([categoryId])
+  @@index([date])
+  @@index([userId, date])
+}
+
+model Budget {
+  id         Int       @id @default(autoincrement())
+  userId     Int
+  categoryId Int
+  amount     Decimal
+  month      Int
+  year       Int
+  createdAt  DateTime  @default(now())
+  updatedAt temporal.updatedAtString()
+
+  user       User      @relation(fields: [userId], references: [id])
+  category   Category  @relation(fields: [categoryId], references: [id])
+
+  @@unique([userId, categoryId, month, year])
+  @@index([userId])
+  @@index([categoryId])
+}

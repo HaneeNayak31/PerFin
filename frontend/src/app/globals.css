@@ -1,0 +1,68 @@
+@import "tailwindcss";
+
+@theme inline {
+  --font-sans: var(--font-inter);
+
+  /* PerFin Design System */
+  --color-brand: #10B981;
+  --color-brand-dark: #047857;
+  --color-brand-subtle: #ECFDF5;
+
+  --color-ink: #101828;
+  --color-ink-secondary: #344054;
+  --color-muted: #667085;
+  --color-muted-light: #98A2B3;
+
+  --color-surface: #FFFFFF;
+  --color-background: #F6F8F7;
+  --color-border: #E4E7EC;
+  --color-border-subtle: #F2F4F7;
+
+  --color-income: #12B76A;
+  --color-income-subtle: #ECFDF5;
+  --color-expense: #F04438;
+  --color-expense-subtle: #FEF3F2;
+  --color-warning: #F79009;
+  --color-warning-subtle: #FFFAEB;
+  --color-ai: #7A5AF8;
+  --color-ai-subtle: #F4F3FF;
+
+  --shadow-card: 0 1px 3px rgba(16, 24, 40, 0.06), 0 1px 2px rgba(16, 24, 40, 0.04);
+  --shadow-elevated: 0 4px 8px rgba(16, 24, 40, 0.08), 0 2px 4px rgba(16, 24, 40, 0.04);
+  --radius-card: 10px;
+  --radius-sm: 6px;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  background-color: #F6F8F7;
+  color: #101828;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Scrollbar */
+::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: #D0D5DD;
+  border-radius: 99px;
+}
+
+/* Recharts custom */
+.recharts-cartesian-grid-horizontal line {
+  stroke: #F2F4F7 !important;
+}
+.recharts-xAxis .recharts-cartesian-axis-tick-value,
+.recharts-yAxis .recharts-cartesian-axis-tick-value {
+  fill: #98A2B3 !important;
+  font-size: 11px !important;
+}
