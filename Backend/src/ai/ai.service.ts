@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma.service.js';
+import { GoogleGenerativeAI } from '@google/generative-ai';
 
 @Injectable()
 export class AiService {
@@ -8,10 +9,7 @@ export class AiService {
   async categorizeTransaction(merchant: string, description: string) {
     const apiKey = process.env.AI_API_KEY;
     
-    // In a real implementation we would call OpenAI/Anthropic/Gemini here.
-    // For this portfolio piece, if no API key is provided, we simulate the structured response.
     if (!apiKey) {
-      // Mocked AI logic based on keywords
       const text = `${merchant} ${description}`.toLowerCase();
       let category = 'Other';
       if (text.includes('zomato') || text.includes('food') || text.includes('restaurant')) category = 'Food';
@@ -24,16 +22,30 @@ export class AiService {
       };
     }
 
-    // Pseudo-code for real API call
-    return {
-      category: 'Food',
-      confidence: 0.99,
-      reason: 'AI service integrated successfully.'
-    };
+    try {
+      const genAI = new GoogleGenerativeAI(apiKey);
+      const model = genAI.getGenerativeModel({ model: "gemini-3.8-flash" });
+      const prompt = `Categorize this transaction. Merchant: ${merchant}, Description: ${description}. 
+Respond ONLY with a JSON object in this format: {"category": "category name", "confidence": 0.99, "reason": "brief reason"}. 
+Keep categories broad like Food, Transport, Utilities, Entertainment, Shopping, Health, Other.`;
+      
+      const result = await model.generateContent(prompt);
+      const response = await result.response;
+      let text = response.text();
+      // Clean up markdown formatting if present
+      text = text.replace(/```json/g, '').replace(/```/g, '').trim();
+      return JSON.parse(text);
+    } catch (error) {
+      console.error("Gemini Categorization Error:", error);
+      return {
+        category: 'Other',
+        confidence: 0.0,
+        reason: 'Error connecting to Gemini API.'
+      };
+    }
   }
 
   async getInsights(userId: number) {
-    // Gather summarized financial data
     const transactions = await this.prisma.client.orm.public.Transaction.where({ userId, type: 'expense' }).all();
     const totalSpent = transactions.reduce((acc, t) => acc + Number(t.amount), 0);
     
@@ -45,20 +57,34 @@ export class AiService {
       ];
     }
 
-    // Call real LLM with summarized data
-    return [
-      'Real AI insight 1',
-      'Real AI insight 2'
-    ];
+    try {
+      const genAI = new GoogleGenerativeAI(process.env.AI_API_KEY);
+      const model = genAI.getGenerativeModel({ model: "gemini-3.8-flash" });
+      
+      // Creating a summary to feed the prompt
+      const expenseSummary = transactions.slice(0, 50).map(t => `${t.merchant}: ₹${t.amount}`).join('\n');
+      
+      const prompt = `You are a financial advisor. I have spent a total of ₹${totalSpent} recently. 
+Here are some of my expenses:
+${expenseSummary}
+
+Provide exactly 3 concise, insightful sentences about my spending habits and advice. Return them as a JSON array of strings: ["insight 1", "insight 2", "insight 3"]`;
+      
+      const result = await model.generateContent(prompt);
+      const response = await result.response;
+      let text = response.text();
+      text = text.replace(/```json/g, '').replace(/```/g, '').trim();
+      return JSON.parse(text);
+    } catch (error) {
+      console.error("Gemini Insights Error:", error);
+      return ['Error generating insights with Gemini API.'];
+    }
   }
 
   async chat(userId: number, query: string) {
-    // LLM Agent tool simulation
-    // A real implementation would parse the query using an LLM configured with tools.
-    // E.g. getAccounts(), getTransactions(), getBudgets()
-    
     const queryLower = query.toLowerCase();
     
+    // Fallback for hardcoded commands just in case
     if (queryLower.includes('how much did i spend')) {
       const transactions = await this.prisma.client.orm.public.Transaction.where({ userId, type: 'expense' }).all();
       const total = transactions.reduce((acc, t) => acc + Number(t.amount), 0);
@@ -71,6 +97,35 @@ export class AiService {
       return `Your total current balance across all accounts is ₹${totalBalance}.`;
     }
 
-    return "I am your AI Finance Agent. Please configure AI_API_KEY for full natural language processing, or ask me simple questions about your balance or spending.";
+    if (!process.env.AI_API_KEY) {
+      return "I am your AI Finance Agent. Please configure AI_API_KEY for full natural language processing, or ask me simple questions about your balance or spending.";
+    }
+
+    try {
+      const accounts = await this.prisma.client.orm.public.Account.where({ userId }).all();
+      const transactions = await this.prisma.client.orm.public.Transaction.where({ userId }).all();
+      
+      const totalBalance = accounts.reduce((acc, a) => acc + Number(a.balance), 0);
+      const totalSpent = transactions.filter(t => t.type === 'expense').reduce((acc, t) => acc + Number(t.amount), 0);
+
+      const genAI = new GoogleGenerativeAI(process.env.AI_API_KEY);
+      const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+      
+      const prompt = `You are an AI Personal Finance Assistant for PerFin.
+Context about the user:
+- Total Balance: ₹${totalBalance}
+- Total Expenses: ₹${totalSpent}
+- Number of Accounts: ${accounts.length}
+
+User Query: "${query}"
+
+Respond directly and helpfully in a conversational tone. Keep it concise.`;
+
+      const result = await model.generateContent(prompt);
+      return result.response.text();
+    } catch (error) {
+      console.error("Gemini Chat Error:", error);
+      return "I encountered an error trying to process your request.";
+    }
   }
 }
