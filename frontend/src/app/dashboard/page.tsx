@@ -1,16 +1,20 @@
 "use client";
 
-import React, { useEffect, useState } from 'react';
+import React, { useState } from 'react';
 import DashboardLayout from '@/components/layout/DashboardLayout';
 import { getOverview, getMonthly, getCategories } from '@/services/analytics';
 import { getTransactions } from '@/services/transactions';
 import { getBudgets } from '@/services/budgets';
-import { api } from '@/services/api';
+import { askAssistant } from '@/services/ai';
+import { apiErrorMessage } from '@/services/api';
+import { useApiData } from '@/hooks/useApiData';
+import { useCurrentUser } from '@/hooks/useCurrentUser';
+import { formatMoney } from '@/lib/format';
 import Link from 'next/link';
 import {
   Plus, ChevronRight, TrendingUp, TrendingDown,
   Wallet, PiggyBank, ArrowLeftRight, Target,
-  Sparkles, Send, BarChart2, PieChart as PieChartIcon, Upload,
+  Sparkles, Send, BarChart2,
 } from 'lucide-react';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
@@ -44,8 +48,30 @@ const T = {
 const CAT_COLORS = ['#059669', '#475569', '#DC2626', '#D97706', '#7C3AED', '#94A3B8'];
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
-const fmt = (n: number) =>
-  new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(n);
+const fmt = (n: number | string) => formatMoney(n);
+
+function greetingFor(hour: number) {
+  return hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening';
+}
+
+// Rendered inside DashboardLayout so it can read the signed-in user.
+function Greeting() {
+  const user = useCurrentUser();
+  const [greeting] = useState(() => greetingFor(new Date().getHours()));
+  const firstName = user?.name?.split(' ')[0];
+  return (
+    <h1 className="text-[22px] font-bold tracking-tight leading-tight" style={{ color: T.ink }}>
+      {firstName ? `${greeting}, ${firstName}` : greeting}
+    </h1>
+  );
+}
+
+async function loadDashboard() {
+  const [overview, monthly, categories, transactions, budgets] = await Promise.all([
+    getOverview(), getMonthly(), getCategories(), getTransactions({ limit: 6 }), getBudgets(),
+  ]);
+  return { overview, monthly, categories, transactions: transactions.data, budgets };
+}
 
 const fmtDate = (d: string | Date) => {
   const dt = new Date(d);
@@ -82,7 +108,7 @@ const Card = ({ children, className = '', style = {} }: { children: React.ReactN
 function StatCard({
   title, value, icon: Icon, iconColor, iconBg, loading,
 }: {
-  title: string; value: string | null;
+  title: string; value?: string | null;
   icon: React.ElementType; iconColor: string; iconBg: string;
   loading: boolean;
 }) {
@@ -119,7 +145,13 @@ function EmptyChart({ message, subtext, height = 'h-48' }: { message: string; su
 }
 
 // ── Tooltip ───────────────────────────────────────────────────────────────────
-const CustomTooltip = ({ active, payload, label }: any) => {
+interface ChartTooltipProps {
+  active?: boolean;
+  label?: string;
+  payload?: { name: string; value: number | string; color: string }[];
+}
+
+const CustomTooltip = ({ active, payload, label }: ChartTooltipProps) => {
   if (!active || !payload?.length) return null;
   return (
     <div style={{
@@ -127,7 +159,7 @@ const CustomTooltip = ({ active, payload, label }: any) => {
       boxShadow: '0 8px 16px rgba(0,0,0,0.2)',
     }}>
       <p className="text-[11px] mb-1.5 font-medium" style={{ color: T.mutedLight }}>{label}</p>
-      {payload.map((p: any, i: number) => (
+      {payload.map((p, i) => (
         <p key={i} className="text-[12px] font-semibold" style={{ color: p.color }}>
           {p.name}: {fmt(Number(p.value))}
         </p>
@@ -138,32 +170,16 @@ const CustomTooltip = ({ active, payload, label }: any) => {
 
 // ── Main Dashboard ────────────────────────────────────────────────────────────
 export default function Dashboard() {
-  const [overview, setOverview] = useState<any>(null);
-  const [monthly, setMonthly] = useState<any[]>([]);
-  const [categories, setCategories] = useState<any[]>([]);
-  const [transactions, setTransactions] = useState<any[]>([]);
-  const [budgets, setBudgets] = useState<any[]>([]);
+  const dashboard = useApiData(loadDashboard, 'dashboard');
+  const loading = dashboard.loading && !dashboard.data;
+  const overview = dashboard.data?.overview ?? null;
+  const monthly = (dashboard.data?.monthly ?? []).map(m => ({ ...m, income: Number(m.income), expense: Number(m.expense) }));
+  const categories = (dashboard.data?.categories ?? []).map(c => ({ ...c, value: Number(c.amount) }));
+  const transactions = dashboard.data?.transactions ?? [];
+  const budgets = dashboard.data?.budgets ?? [];
   const [aiInput, setAiInput] = useState('');
   const [aiResponse, setAiResponse] = useState('');
   const [aiLoading, setAiLoading] = useState(false);
-  const [loading, setLoading] = useState(true);
-  const [greeting, setGreeting] = useState('Welcome');
-
-  useEffect(() => {
-    const hour = new Date().getHours();
-    setGreeting(hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening');
-
-    Promise.all([
-      getOverview(), getMonthly(), getCategories(),
-      getTransactions({ limit: 6 }), getBudgets(),
-    ]).then(([ov, mo, cat, tx, bg]) => {
-      setOverview(ov);
-      setMonthly(mo);
-      setCategories(cat);
-      setTransactions(tx.data ?? []);
-      setBudgets(Array.isArray(bg) ? bg : []);
-    }).catch(console.error).finally(() => setLoading(false));
-  }, []);
 
   const sendAi = async (q: string) => {
     if (!q.trim() || aiLoading) return;
@@ -171,30 +187,29 @@ export default function Dashboard() {
     setAiLoading(true);
     setAiResponse('');
     try {
-      const { data } = await api.post('/ai/chat', { query: q });
-      setAiResponse(typeof data === 'string' ? data : JSON.stringify(data));
-    } catch {
-      setAiResponse("Couldn't process that. Please try again.");
+      const data = await askAssistant(q);
+      setAiResponse(data.reply);
+    } catch (err) {
+      setAiResponse(apiErrorMessage(err));
     } finally {
       setAiLoading(false);
     }
   };
 
-  const totalCatSpend = categories.reduce((s, c) => s + Number(c.amount), 0);
+  const totalCatSpend = categories.reduce((s, c) => s + c.value, 0);
 
   return (
     <DashboardLayout>
       {/* ── HEADER ──────────────────────────────────────────────────────────── */}
       <div className="flex items-end justify-between mb-7">
         <div>
-          <h1 className="text-[22px] font-bold tracking-tight leading-tight" style={{ color: T.ink }}>
-            {greeting}, Hanee
-          </h1>
+          <Greeting />
           <p className="text-[13px] mt-0.5" style={{ color: T.muted }}>
-            Here's your financial overview for September.
+            Here&apos;s your all-time financial overview.
           </p>
+          {dashboard.error && <p className="text-[12.5px] mt-1" style={{ color: T.expense }}>{dashboard.error}</p>}
         </div>
-        <button
+        <Link href="/transactions"
           className="flex items-center gap-1.5 text-[13px] font-semibold text-white px-4 py-2 rounded-lg transition-all"
           style={{ backgroundColor: T.brandDark, boxShadow: '0 1px 3px rgba(4, 120, 87, 0.3)' }}
           onMouseEnter={e => { (e.currentTarget as HTMLElement).style.backgroundColor = '#065F46'; }}
@@ -202,7 +217,7 @@ export default function Dashboard() {
         >
           <Plus size={14} strokeWidth={2.5} />
           Add transaction
-        </button>
+        </Link>
       </div>
 
       {/* ── SUMMARY CARDS ───────────────────────────────────────────────────── */}
@@ -280,11 +295,11 @@ export default function Dashboard() {
                   <PieChart>
                     <Pie data={categories} cx="50%" cy="50%"
                       innerRadius={48} outerRadius={62}
-                      paddingAngle={2} dataKey="amount" nameKey="category" stroke="none">
+                      paddingAngle={2} dataKey="value" nameKey="category" stroke="none">
                       {categories.map((_, i) => <Cell key={i} fill={CAT_COLORS[i % CAT_COLORS.length]} />)}
                     </Pie>
                     <Tooltip
-                      formatter={(v: any) => fmt(Number(v))}
+                      formatter={(v) => fmt(Number(v))}
                       contentStyle={{
                         backgroundColor: T.ink, border: 'none', borderRadius: '8px',
                         fontSize: 12, color: '#fff', boxShadow: '0 8px 16px rgba(0,0,0,0.2)',
@@ -300,7 +315,7 @@ export default function Dashboard() {
               {/* Legend */}
               <div className="space-y-1.5 mt-2">
                 {categories.slice(0, 5).map((c, i) => {
-                  const pct = totalCatSpend > 0 ? ((Number(c.amount) / totalCatSpend) * 100).toFixed(0) : '0';
+                  const pct = totalCatSpend > 0 ? ((c.value / totalCatSpend) * 100).toFixed(0) : '0';
                   return (
                     <div key={i} className="flex items-center justify-between">
                       <div className="flex items-center gap-1.5 min-w-0">
@@ -309,7 +324,7 @@ export default function Dashboard() {
                       </div>
                       <div className="flex items-center gap-2 flex-shrink-0 ml-2">
                         <span className="text-[11px]" style={{ color: T.mutedLight }}>{pct}%</span>
-                        <span className="text-[12px] font-semibold" style={{ color: T.ink }}>{fmt(Number(c.amount))}</span>
+                        <span className="text-[12px] font-semibold" style={{ color: T.ink }}>{fmt(c.amount)}</span>
                       </div>
                     </div>
                   );
@@ -359,20 +374,18 @@ export default function Dashboard() {
               <p className="text-[12px]" style={{ color: T.mutedLight }}>
                 Add your first transaction to start tracking your spending.
               </p>
-              <button
+              <Link href="/transactions"
                 className="mt-2 flex items-center gap-1.5 text-[12px] font-semibold text-white px-3.5 py-1.5 rounded-lg transition-colors"
                 style={{ backgroundColor: T.ink }}
-                onMouseEnter={e => { (e.currentTarget as HTMLElement).style.backgroundColor = '#1d2939'; }}
-                onMouseLeave={e => { (e.currentTarget as HTMLElement).style.backgroundColor = T.ink; }}
               >
                 <Plus size={12} strokeWidth={2.5} /> Add Transaction
-              </button>
+              </Link>
             </div>
           ) : (
             <div style={{ borderTop: `1px solid ${T.borderSubtle}` }}>
               {transactions.map((tx, i) => (
                 <div
-                  key={i}
+                  key={tx.id}
                   className="flex items-center gap-3 py-3"
                   style={{ borderBottom: i < transactions.length - 1 ? `1px solid ${T.borderSubtle}` : 'none' }}
                 >
@@ -381,7 +394,7 @@ export default function Dashboard() {
                     className="w-8 h-8 rounded-full flex items-center justify-center text-[11px] font-bold flex-shrink-0"
                     style={{ backgroundColor: T.bg, color: T.secondary }}
                   >
-                    {(tx.merchant || '?').charAt(0).toUpperCase()}
+                    {(tx.merchant || tx.description || '?').charAt(0).toUpperCase()}
                   </div>
                   <div className="flex-1 min-w-0">
                     <p className="text-[13px] font-medium truncate" style={{ color: T.ink }}>
@@ -393,7 +406,7 @@ export default function Dashboard() {
                     className="text-[13px] font-semibold flex-shrink-0"
                     style={{ color: tx.type === 'income' ? T.income : T.ink }}
                   >
-                    {tx.type === 'income' ? '+' : '−'}{fmt(Number(tx.amount))}
+                    {tx.type === 'income' ? '+' : '−'}{formatMoney(tx.amount, tx.account?.currency)}
                   </span>
                 </div>
               ))}
@@ -431,27 +444,24 @@ export default function Dashboard() {
                 <p className="text-[11.5px]" style={{ color: T.mutedLight }}>
                   Set spending limits to stay on track.
                 </p>
-                <button
+                <Link href="/budgets"
                   className="mt-2 flex items-center gap-1 text-[12px] font-semibold text-white px-3 py-1.5 rounded-lg"
                   style={{ backgroundColor: T.ink }}
                 >
                   <Plus size={11} /> Create Budget
-                </button>
+                </Link>
               </div>
             ) : (
               <div className="space-y-4">
-                {budgets.slice(0, 4).map((b, i) => {
-                  const spent = Number(b.spent ?? 0);
-                  const amount = Number(b.amount);
-                  const pct = amount > 0 ? Math.min(100, (spent / amount) * 100) : 0;
+                {budgets.slice(0, 4).map(b => {
+                  const pct = Math.min(100, b.percentageUsed);
                   const barColor = pct >= 100 ? T.expense : pct >= 80 ? T.warning : T.income;
-                  const label = b.categoryName ?? b.category?.name ?? `Budget ${b.id}`;
                   return (
-                    <div key={i}>
+                    <div key={b.id}>
                       <div className="flex justify-between items-baseline mb-1.5">
-                        <span className="text-[12.5px] font-medium" style={{ color: T.secondary }}>{label}</span>
+                        <span className="text-[12.5px] font-medium" style={{ color: T.secondary }}>{b.categoryName}</span>
                         <span className="text-[11px]" style={{ color: T.mutedLight }}>
-                          {fmt(spent)} / {fmt(amount)}
+                          {fmt(b.spent)} / {fmt(b.amount)}
                         </span>
                       </div>
                       <div className="w-full rounded-full h-1.5 overflow-hidden" style={{ backgroundColor: T.borderSubtle }}>
@@ -472,13 +482,14 @@ export default function Dashboard() {
             <h2 className="text-[14px] font-semibold mb-3" style={{ color: T.ink }}>Quick Actions</h2>
             <div className="space-y-1.5">
               {[
-                { label: 'Add Transaction', icon: Plus, color: T.brand, bg: T.brandSubtle },
-                { label: 'Add Account', icon: Wallet, color: '#3B82F6', bg: '#EFF6FF' },
-                { label: 'Add Budget', icon: Target, color: '#7A5AF8', bg: '#F4F3FF' },
-                { label: 'Import CSV', icon: Upload, color: T.warning, bg: T.warningSubtle },
-              ].map(({ label, icon: Icon, color, bg }) => (
-                <button
+                { label: 'Add Transaction', href: '/transactions', icon: Plus, color: T.brand, bg: T.brandSubtle },
+                { label: 'Add Account', href: '/accounts', icon: Wallet, color: '#3B82F6', bg: '#EFF6FF' },
+                { label: 'Add Budget', href: '/budgets', icon: Target, color: '#7A5AF8', bg: '#F4F3FF' },
+                { label: 'View Analytics', href: '/analytics', icon: BarChart2, color: T.warning, bg: T.warningSubtle },
+              ].map(({ label, href, icon: Icon, color, bg }) => (
+                <Link
                   key={label}
+                  href={href}
                   className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-[12.5px] font-medium transition-colors text-left"
                   style={{ color, backgroundColor: 'transparent' }}
                   onMouseEnter={e => { (e.currentTarget as HTMLElement).style.backgroundColor = bg; }}
@@ -486,7 +497,7 @@ export default function Dashboard() {
                 >
                   <Icon size={13} strokeWidth={2.5} style={{ color, flexShrink: 0 }} />
                   {label}
-                </button>
+                </Link>
               ))}
             </div>
           </Card>
@@ -515,7 +526,7 @@ export default function Dashboard() {
             </div>
             <p className="text-[12px] mb-3" style={{ color: '#667085' }}>Ask anything about your finances.</p>
             <div className="flex flex-col gap-1">
-              {['How much did I spend this month?', 'Am I on track with my budget?', 'Where did I spend the most?'].map(q => (
+              {['How much did I spend this month?', 'What is my total balance?', 'Where did I spend the most?'].map(q => (
                 <button
                   key={q}
                   onClick={() => sendAi(q)}

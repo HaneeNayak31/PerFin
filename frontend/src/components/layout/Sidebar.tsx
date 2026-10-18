@@ -2,10 +2,12 @@
 
 import React from 'react';
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
+import { useCurrentUser } from '@/hooks/useCurrentUser';
+import { logout } from '@/services/auth';
 import {
   LayoutDashboard, CreditCard, ArrowLeftRight,
-  Target, BarChart2, Sparkles, Settings, LogOut,
+  Target, BarChart2, Sparkles, LogOut,
 } from 'lucide-react';
 
 const navItems = [
@@ -19,6 +21,17 @@ const navItems = [
 
 export default function Sidebar() {
   const pathname = usePathname();
+  const router = useRouter();
+  const user = useCurrentUser();
+  const displayName = user?.name || user?.email || '';
+
+  const handleLogout = async () => {
+    try {
+      await logout();
+    } finally {
+      router.push('/login');
+    }
+  };
 
   return (
     <aside
@@ -83,16 +96,7 @@ export default function Sidebar() {
       {/* Footer nav */}
       <div className="px-2 pb-2" style={{ borderTop: '1px solid #1d2939', paddingTop: '8px' }}>
         <button
-          className="flex items-center gap-2.5 px-3 py-2 w-full rounded-md text-[13px] font-medium transition-all"
-          style={{ color: '#98A2B3' }}
-          onMouseEnter={e => { (e.currentTarget as HTMLElement).style.color = '#D0D5DD'; (e.currentTarget as HTMLElement).style.backgroundColor = 'rgba(255,255,255,0.04)'; }}
-          onMouseLeave={e => { (e.currentTarget as HTMLElement).style.color = '#98A2B3'; (e.currentTarget as HTMLElement).style.backgroundColor = 'transparent'; }}
-        >
-          <Settings size={14} strokeWidth={2} style={{ color: '#475467' }} />
-          Settings
-        </button>
-        <button
-          onClick={() => { localStorage.removeItem('token'); window.location.href = '/login'; }}
+          onClick={handleLogout}
           className="flex items-center gap-2.5 px-3 py-2 w-full rounded-md text-[13px] font-medium transition-all"
           style={{ color: '#98A2B3' }}
           onMouseEnter={e => { (e.currentTarget as HTMLElement).style.color = '#F97066'; (e.currentTarget as HTMLElement).style.backgroundColor = 'rgba(240, 68, 56, 0.06)'; }}
@@ -110,11 +114,11 @@ export default function Sidebar() {
             className="w-7 h-7 rounded-full flex items-center justify-center text-[11px] font-bold flex-shrink-0"
             style={{ backgroundColor: '#1d2939', color: '#98A2B3', border: '1px solid #344054' }}
           >
-            H
+            {(displayName.charAt(0) || '?').toUpperCase()}
           </div>
           <div className="min-w-0">
-            <p className="text-[12.5px] font-medium leading-tight" style={{ color: '#D0D5DD' }}>Hanee</p>
-            <p className="text-[11px] leading-tight" style={{ color: '#475467' }}>Personal Plan</p>
+            <p className="text-[12.5px] font-medium leading-tight truncate" style={{ color: '#D0D5DD' }}>{user?.name ?? ''}</p>
+            <p className="text-[11px] leading-tight truncate" style={{ color: '#475467' }}>{user?.email ?? ''}</p>
           </div>
         </div>
       </div>

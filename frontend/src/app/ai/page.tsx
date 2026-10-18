@@ -2,7 +2,8 @@
 
 import React, { useState } from 'react';
 import DashboardLayout from '@/components/layout/DashboardLayout';
-import { api } from '@/services/api';
+import { askAssistant } from '@/services/ai';
+import { apiErrorMessage } from '@/services/api';
 import { Sparkles, Send, ChevronRight, Bot } from 'lucide-react';
 
 const T = {
@@ -14,17 +15,16 @@ const T = {
 const PROMPTS = [
   "How much did I spend this month?",
   "What are my biggest expenses?",
-  "Am I on track with my budgets?",
-  "Compare my spending to last month.",
-  "Find unusual spending.",
+  "Which category did I spend the most on?",
+  "What is my total balance?",
   "How much did I save this month?",
 ];
 
-interface Msg { role: 'user' | 'assistant'; content: string }
+interface Msg { role: 'user' | 'assistant'; content: string; source?: 'gemini' | 'calculated' }
 
 export default function AiPage() {
   const [messages, setMessages] = useState<Msg[]>([
-    { role: 'assistant', content: "Hi! I'm your AI Finance Assistant. Ask me anything about your spending, budgets, income, or savings." },
+    { role: 'assistant', content: "Hi! I'm your AI Finance Assistant. I can see this month's totals, your account balances and your top spending categories, so ask me about those." },
   ]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
@@ -35,10 +35,10 @@ export default function AiPage() {
     setMessages(prev => [...prev, { role: 'user', content: q }]);
     setLoading(true);
     try {
-      const { data } = await api.post('/ai/chat', { query: q });
-      setMessages(prev => [...prev, { role: 'assistant', content: typeof data === 'string' ? data : JSON.stringify(data) }]);
-    } catch {
-      setMessages(prev => [...prev, { role: 'assistant', content: "Sorry, I couldn't process that. Try again." }]);
+      const data = await askAssistant(q);
+      setMessages(prev => [...prev, { role: 'assistant', content: data.reply, source: data.source }]);
+    } catch (err) {
+      setMessages(prev => [...prev, { role: 'assistant', content: apiErrorMessage(err) }]);
     } finally {
       setLoading(false);
     }
@@ -52,7 +52,7 @@ export default function AiPage() {
             <Sparkles size={22} style={{ color: T.ai }} />
             AI Finance Assistant
           </h1>
-          <p className="text-[13px] mt-0.5" style={{ color: T.muted }}>Your intelligent financial copilot.</p>
+          <p className="text-[13px] mt-0.5" style={{ color: T.muted }}>Answers are based on this month&apos;s totals calculated by PerFin.</p>
         </div>
         <span className="px-2.5 py-1 text-[10px] font-bold rounded-full uppercase tracking-wider"
           style={{ backgroundColor: T.aiSubtle, color: T.ai }}>Beta</span>
@@ -101,6 +101,11 @@ export default function AiPage() {
                     color: m.role === 'user' ? '#FFFFFF' : T.ink,
                   }}>
                   {m.content}
+                  {m.source && (
+                    <p className="text-[10.5px] mt-1.5" style={{ color: T.mutedLight }}>
+                      {m.source === 'gemini' ? 'AI-generated answer based on your calculated totals' : 'Calculated by PerFin (AI unavailable)'}
+                    </p>
+                  )}
                 </div>
               </div>
             ))}
@@ -131,7 +136,7 @@ export default function AiPage() {
           <div className="p-4" style={{ borderTop: `1px solid ${T.border}` }}>
             <div className="relative flex items-center">
               <input type="text" value={input} onChange={e => setInput(e.target.value)}
-                onKeyDown={e => e.key === 'Enter' && send(input)}
+                onKeyDown={e => e.key === 'Enter' && send(input)} maxLength={500}
                 placeholder="Ask about your finances…"
                 className="w-full pl-4 pr-12 py-3 text-[13px] rounded-lg outline-none transition-all"
                 style={{ backgroundColor: '#F6F8F7', border: `1px solid ${T.border}`, color: T.ink }}

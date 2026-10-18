@@ -1,16 +1,16 @@
+import type { CategoryBreakdownRow, MonthlyRow, Overview } from '@/types/api';
 import { api } from './api';
 
-export const getOverview = async () => {
-  const { data } = await api.get('/analytics/overview');
-  return data;
-};
+export interface DateRange {
+  startDate?: string;
+  endDate?: string;
+}
 
-export const getMonthly = async () => {
-  const { data } = await api.get('/analytics/monthly');
-  return data;
-};
+export const getOverview = async (range: DateRange = {}) =>
+  (await api.get<Overview>('/analytics/overview', { params: range })).data;
 
-export const getCategories = async () => {
-  const { data } = await api.get('/analytics/categories');
-  return data;
-};
+export const getMonthly = async (range: DateRange = {}) =>
+  (await api.get<MonthlyRow[]>('/analytics/monthly', { params: range })).data;
+
+export const getCategories = async (range: DateRange = {}) =>
+  (await api.get<CategoryBreakdownRow[]>('/analytics/categories', { params: range })).data;

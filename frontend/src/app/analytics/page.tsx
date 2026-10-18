@@ -1,8 +1,10 @@
 "use client";
 
-import React, { useEffect, useState } from 'react';
+import React, { useState } from 'react';
 import DashboardLayout from '@/components/layout/DashboardLayout';
-import { getOverview, getMonthly, getCategories } from '@/services/analytics';
+import { getOverview, getMonthly, getCategories, type DateRange } from '@/services/analytics';
+import { useApiData } from '@/hooks/useApiData';
+import { formatMoney } from '@/lib/format';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   PieChart, Pie, Cell, LineChart, Line,
@@ -16,15 +18,43 @@ const T = {
 
 const CAT_COLORS = ['#059669', '#475569', '#DC2626', '#D97706', '#7C3AED', '#94A3B8'];
 
-const fmt = (n: number) =>
-  new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(n);
+const fmt = (n: number | string) => formatMoney(n);
 
-const DarkTooltip = ({ active, payload, label }: any) => {
+type Period = 'all' | '6m' | '12m' | 'ytd';
+
+function isoDate(date: Date) {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+}
+
+/** Start of the selected period as an inclusive YYYY-MM-DD date (whole months). */
+function rangeFor(period: Period): DateRange {
+  const now = new Date();
+  if (period === 'ytd') return { startDate: `${now.getFullYear()}-01-01` };
+  if (period === '6m' || period === '12m') {
+    const months = period === '6m' ? 5 : 11;
+    return { startDate: isoDate(new Date(now.getFullYear(), now.getMonth() - months, 1)) };
+  }
+  return {};
+}
+
+async function loadAnalytics(period: Period) {
+  const range = rangeFor(period);
+  const [overview, monthly, categories] = await Promise.all([getOverview(range), getMonthly(range), getCategories(range)]);
+  return { overview, monthly, categories };
+}
+
+interface TooltipProps {
+  active?: boolean;
+  label?: string;
+  payload?: { name: string; value: number | string; color: string }[];
+}
+
+const DarkTooltip = ({ active, payload, label }: TooltipProps) => {
   if (!active || !payload?.length) return null;
   return (
     <div style={{ backgroundColor: T.ink, borderRadius: '8px', padding: '8px 12px', boxShadow: '0 8px 16px rgba(0,0,0,0.2)' }}>
       <p className="text-[11px] mb-1.5 font-medium" style={{ color: T.mutedLight }}>{label}</p>
-      {payload.map((p: any, i: number) => (
+      {payload.map((p, i) => (
         <p key={i} className="text-[12px] font-semibold" style={{ color: p.color }}>{p.name}: {fmt(Number(p.value))}</p>
       ))}
     </div>
@@ -49,16 +79,15 @@ const EmptyChart = () => (
 );
 
 export default function AnalyticsPage() {
-  const [overview, setOverview] = useState<any>(null);
-  const [monthly, setMonthly] = useState<any[]>([]);
-  const [categories, setCategories] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    Promise.all([getOverview(), getMonthly(), getCategories()])
-      .then(([ov, mo, cat]) => { setOverview(ov); setMonthly(mo); setCategories(cat); })
-      .catch(console.error).finally(() => setLoading(false));
-  }, []);
+  const [period, setPeriod] = useState<Period>('6m');
+  const analytics = useApiData(() => loadAnalytics(period), period);
+  const loading = analytics.loading && !analytics.data;
+  const overview = analytics.data?.overview ?? null;
+  // Recharts needs numbers; these conversions are for drawing only.
+  const monthly = (analytics.data?.monthly ?? []).map(m => ({
+    month: m.month, income: Number(m.income), expense: Number(m.expense), net: Number(m.net),
+  }));
+  const categories = (analytics.data?.categories ?? []).map(c => ({ category: c.category, amount: Number(c.amount), exact: c.amount }));
 
   return (
     <DashboardLayout>
@@ -67,13 +96,17 @@ export default function AnalyticsPage() {
           <h1 className="text-[22px] font-bold tracking-tight" style={{ color: T.ink }}>Analytics</h1>
           <p className="text-[13px] mt-0.5" style={{ color: T.muted }}>Insights into your financial health.</p>
         </div>
-        <select className="rounded-lg px-3.5 py-2 text-[13px] font-medium outline-none"
+        <select aria-label="Period" value={period} onChange={e => setPeriod(e.target.value as Period)}
+          className="rounded-lg px-3.5 py-2 text-[13px] font-medium outline-none"
           style={{ backgroundColor: T.surface, border: `1px solid ${T.border}`, color: T.secondary }}>
-          <option>Last 6 Months</option>
-          <option>Last 12 Months</option>
-          <option>This Year</option>
+          <option value="6m">Last 6 Months</option>
+          <option value="12m">Last 12 Months</option>
+          <option value="ytd">This Year</option>
+          <option value="all">All Time</option>
         </select>
       </div>
+
+      {analytics.error && <p className="text-[13px] mb-4" style={{ color: T.expense }}>{analytics.error}</p>}
 
       {/* Summary */}
       {!loading && overview && (
@@ -87,7 +120,7 @@ export default function AnalyticsPage() {
             <div key={item.label} className="rounded-xl p-4" style={{ backgroundColor: T.surface, border: `1px solid ${T.border}` }}>
               <p className="text-[11px] font-semibold uppercase tracking-wider mb-1" style={{ color: T.muted }}>{item.label}</p>
               <p className="text-[18px] font-bold tracking-tight" style={{ color: item.color }}>
-                {item.raw ? item.value : fmt(Number(item.value))}
+                {item.raw ? item.value : fmt(item.value)}
               </p>
             </div>
           ))}
@@ -126,7 +159,7 @@ export default function AnalyticsPage() {
                       <Pie data={categories} cx="50%" cy="50%" innerRadius={60} outerRadius={76} paddingAngle={2} dataKey="amount" nameKey="category" stroke="none">
                         {categories.map((_, i) => <Cell key={i} fill={CAT_COLORS[i % CAT_COLORS.length]} />)}
                       </Pie>
-                      <Tooltip formatter={(v: any) => fmt(Number(v))} contentStyle={{ backgroundColor: T.ink, border: 'none', borderRadius: '8px', color: '#fff', fontSize: 12 }} />
+                      <Tooltip formatter={(v) => fmt(Number(v))} contentStyle={{ backgroundColor: T.ink, border: 'none', borderRadius: '8px', color: '#fff', fontSize: 12 }} />
                     </PieChart>
                   </ResponsiveContainer>
                 </div>
@@ -136,7 +169,7 @@ export default function AnalyticsPage() {
                       <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: CAT_COLORS[i % CAT_COLORS.length] }} />
                       <div className="min-w-0">
                         <p className="text-[11.5px] font-medium truncate" style={{ color: T.secondary }}>{c.category}</p>
-                        <p className="text-[10.5px]" style={{ color: T.mutedLight }}>{fmt(Number(c.amount))}</p>
+                        <p className="text-[10.5px]" style={{ color: T.mutedLight }}>{fmt(c.exact)}</p>
                       </div>
                     </div>
                   ))}
@@ -149,7 +182,7 @@ export default function AnalyticsPage() {
             {monthly.length > 0 ? (
               <div className="h-56">
                 <ResponsiveContainer width="100%" height="100%">
-                  <LineChart data={monthly.map(m => ({ ...m, net: Number(m.income) - Number(m.expense) }))}>
+                  <LineChart data={monthly}>
                     <CartesianGrid vertical={false} stroke={T.borderSubtle} />
                     <XAxis dataKey="month" axisLine={false} tickLine={false} tick={{ fill: T.mutedLight, fontSize: 11 }} />
                     <YAxis axisLine={false} tickLine={false} tick={{ fill: T.mutedLight, fontSize: 11 }} tickFormatter={v => `₹${Math.round(v/1000)}k`} width={45} />

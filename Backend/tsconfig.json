@@ -5,23 +5,20 @@
     "resolvePackageJsonExports": true,
     "esModuleInterop": true,
     "isolatedModules": true,
-    "declaration": true,
-    "removeComments": true,
-    "emitDecoratorMetadata": true,
     "experimentalDecorators": true,
     "allowSyntheticDefaultImports": true,
     "target": "ES2023",
+    "lib": ["ES2023", "ESNext.Temporal"],
     "sourceMap": true,
     "outDir": "./dist",
     "rootDir": ".",
-    "incremental": true,
     "skipLibCheck": true,
     "strict": true,
-    "strictPropertyInitialization": false,
-    "types": [
-      "vitest/globals",
-      "node"
-    ],
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noFallthroughCasesInSwitch": true,
+    "types": ["vitest/globals", "node"],
     "resolveJsonModule": true
-  }
+  },
+  "include": ["src", "tests", "vitest.config.ts", "vitest.integration.config.ts"]
 }

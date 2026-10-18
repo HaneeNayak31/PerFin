@@ -2,8 +2,9 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { api } from '@/services/api';
-import { Lock, Mail, ArrowRight, TrendingUp } from 'lucide-react';
+import { apiErrorMessage } from '@/services/api';
+import { login, register } from '@/services/auth';
+import { Lock, Mail, ArrowRight, TrendingUp, User } from 'lucide-react';
 
 const T = {
   ink: '#101828', muted: '#667085', mutedLight: '#98A2B3',
@@ -11,27 +12,33 @@ const T = {
 };
 
 export default function Login() {
+  const [mode, setMode] = useState<'login' | 'register'>('login');
+  const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const router = useRouter();
+  const isRegister = mode === 'register';
 
-  const handleLogin = async (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (loading) return;
     setLoading(true);
     setError('');
     try {
-      const res = await api.post('/auth/login', { email, password });
-      if (res.data.accessToken) {
-        localStorage.setItem('token', res.data.accessToken);
-        router.push('/dashboard');
-      }
-    } catch {
-      setError('Invalid email or password.');
-    } finally {
+      if (isRegister) await register({ name, email, password });
+      await login({ email, password });
+      router.push('/dashboard');
+    } catch (err) {
+      setError(apiErrorMessage(err));
       setLoading(false);
     }
+  };
+
+  const switchMode = () => {
+    setMode(isRegister ? 'login' : 'register');
+    setError('');
   };
 
   return (
@@ -54,7 +61,7 @@ export default function Login() {
         </div>
         <div className="relative z-10">
           <blockquote className="text-[24px] font-semibold text-white leading-snug mb-6 max-w-md">
-            "Financial clarity starts with understanding where your money goes."
+            &ldquo;Financial clarity starts with understanding where your money goes.&rdquo;
           </blockquote>
           <div className="flex items-center gap-3">
             <div className="w-9 h-9 rounded-lg flex items-center justify-center" style={{ backgroundColor: '#1d2939' }}>
@@ -67,7 +74,7 @@ export default function Login() {
           </div>
         </div>
         <div className="relative z-10 grid grid-cols-3 gap-3">
-          {[{ l: 'Users', v: '10K+' }, { l: 'Tracked', v: '₹50Cr+' }, { l: 'Saved', v: '₹8Cr+' }].map(s => (
+          {[{ l: 'Decimal maths', v: 'Exact' }, { l: 'Atomic updates', v: 'Safe' }, { l: 'Gemini insights', v: 'AI' }].map(s => (
             <div key={s.l} className="rounded-xl p-3.5" style={{ backgroundColor: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.06)' }}>
               <p className="text-[18px] font-bold text-white">{s.v}</p>
               <p className="text-[11px]" style={{ color: '#475467' }}>{s.l}</p>
@@ -88,20 +95,38 @@ export default function Login() {
             <span className="text-[15px] font-semibold tracking-tight" style={{ color: T.ink }}>PerFin</span>
           </div>
 
-          <h1 className="text-[24px] font-bold tracking-tight mb-1" style={{ color: T.ink }}>Welcome back</h1>
-          <p className="text-[14px] mb-7" style={{ color: T.muted }}>Sign in to your PerFin account</p>
+          <h1 className="text-[24px] font-bold tracking-tight mb-1" style={{ color: T.ink }}>
+            {isRegister ? 'Create your account' : 'Welcome back'}
+          </h1>
+          <p className="text-[14px] mb-7" style={{ color: T.muted }}>
+            {isRegister ? 'Start tracking your money with PerFin' : 'Sign in to your PerFin account'}
+          </p>
 
-          <form onSubmit={handleLogin} className="space-y-4">
+          <form onSubmit={handleSubmit} className="space-y-4">
             {error && (
               <div className="px-3.5 py-2.5 text-[13px] rounded-lg" style={{ backgroundColor: '#FEF3F2', color: '#F04438', border: '1px solid #FECDCA' }}>
                 {error}
               </div>
             )}
+            {isRegister && (
+              <div>
+                <label htmlFor="name" className="block text-[13px] font-medium mb-1.5" style={{ color: T.ink }}>Name</label>
+                <div className="relative">
+                  <User size={15} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: T.mutedLight }} />
+                  <input id="name" type="text" value={name} onChange={e => setName(e.target.value)} required minLength={2} maxLength={80}
+                    placeholder="Your name" autoComplete="name"
+                    className="w-full pl-9 pr-4 py-2.5 text-[13px] rounded-lg outline-none transition-all"
+                    style={{ backgroundColor: '#FFFFFF', border: `1px solid ${T.border}`, color: T.ink }}
+                    onFocus={e => { (e.currentTarget as HTMLElement).style.borderColor = T.brand; }}
+                    onBlur={e => { (e.currentTarget as HTMLElement).style.borderColor = T.border; }} />
+                </div>
+              </div>
+            )}
             <div>
-              <label className="block text-[13px] font-medium mb-1.5" style={{ color: T.ink }}>Email</label>
+              <label htmlFor="email" className="block text-[13px] font-medium mb-1.5" style={{ color: T.ink }}>Email</label>
               <div className="relative">
                 <Mail size={15} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: T.mutedLight }} />
-                <input type="email" value={email} onChange={e => setEmail(e.target.value)} required
+                <input id="email" type="email" autoComplete="email" value={email} onChange={e => setEmail(e.target.value)} required
                   placeholder="you@example.com"
                   className="w-full pl-9 pr-4 py-2.5 text-[13px] rounded-lg outline-none transition-all"
                   style={{ backgroundColor: '#FFFFFF', border: `1px solid ${T.border}`, color: T.ink }}
@@ -110,10 +135,11 @@ export default function Login() {
               </div>
             </div>
             <div>
-              <label className="block text-[13px] font-medium mb-1.5" style={{ color: T.ink }}>Password</label>
+              <label htmlFor="password" className="block text-[13px] font-medium mb-1.5" style={{ color: T.ink }}>Password</label>
               <div className="relative">
                 <Lock size={15} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: T.mutedLight }} />
-                <input type="password" value={password} onChange={e => setPassword(e.target.value)} required
+                <input id="password" type="password" value={password} onChange={e => setPassword(e.target.value)} required
+                  minLength={isRegister ? 8 : 1} maxLength={72} autoComplete={isRegister ? 'new-password' : 'current-password'}
                   placeholder="••••••••"
                   className="w-full pl-9 pr-4 py-2.5 text-[13px] rounded-lg outline-none transition-all"
                   style={{ backgroundColor: '#FFFFFF', border: `1px solid ${T.border}`, color: T.ink }}
@@ -126,10 +152,19 @@ export default function Login() {
               style={{ backgroundColor: T.brandDark, boxShadow: '0 1px 3px rgba(4,120,87,0.3)' }}
               onMouseEnter={e => { (e.currentTarget as HTMLElement).style.backgroundColor = '#065F46'; }}
               onMouseLeave={e => { (e.currentTarget as HTMLElement).style.backgroundColor = T.brandDark; }}>
-              {loading ? 'Signing in…' : 'Sign In'}
+              {loading ? (isRegister ? 'Creating account…' : 'Signing in…') : (isRegister ? 'Create Account' : 'Sign In')}
               {!loading && <ArrowRight size={15} />}
             </button>
+            {isRegister && (
+              <p className="text-[12px]" style={{ color: T.mutedLight }}>Use at least 8 characters for your password.</p>
+            )}
           </form>
+          <p className="text-[13px] mt-6 text-center" style={{ color: T.muted }}>
+            {isRegister ? 'Already have an account?' : 'New to PerFin?'}{' '}
+            <button type="button" onClick={switchMode} className="font-semibold" style={{ color: T.brandDark }}>
+              {isRegister ? 'Sign in' : 'Create an account'}
+            </button>
+          </p>
         </div>
       </div>
     </div>
